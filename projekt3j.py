@@ -1,67 +1,113 @@
 ## projekt_3.py: třetí projekt
-autor: Veronika Pazderová
-email: veronikapazderova06@gmail.com
-discord: Weruna
-##
-import requests as req  
-from bs4 import BeautifulSoup as bs 
-from urllib.parse import urljoin  
-from time import sleep  
-from random import choice  
-import sys  
+## autor: Veronika Pazderová
+## email: veronikapazderova06@gmail.com
+##discord: Weruna
+## Importujeme potřebné knihovny
+import requests as req  ## requests pro HTTP požadavky
+from bs4 import BeautifulSoup as bs  ## BeautifulSoup pro parsování HTML
+from urllib.parse import urljoin, urlparse, parse_qs  ## Pomocné funkce pro práci s URL
+from time import sleep  ## Funkce sleep pro čekání mezi pokusy
+from random import choice  ## Funkce choice pro náhodný výběr
+import sys  ## Knihovna sys pro přístup k argumentům příkazové řádky
+import csv  ## Knihovna csv pro práci s CSV soubory
 
-def get_page(link):  
-    for pokus in range(1, 7):  ## Pro cyklus s proměnnou pokus od 1 do 6
-        try:  ## Začátek bloku try
-            print("stahování", link)  
-            page = bs(req.get(link).text, features="html.parser")  
-            print("úspěch")  
-            return page  
-        except req.exceptions.ConnectionError:  
-            print("Odmítnuto připojení, čekání", 10 * pokus, "sekund")  
-            sleep(10 * pokus)  
-    print("CHYBA - stránka se nepodařilo stáhnout")  ## Vypíše chybovou zprávu
-    return  ## Vrátí None
+## Funkce pro získání stránky
+def get_page(link: str):
+    ## Několik pokusů získat stránku, pokud se nepodaří, čekáme mezi pokusy
+    for pokus v rozmezí 1 až 7:
+        try:
+            print("Získávání stránky", link)
+            ## Získáme stránku a parsujeme ji pomocí BeautifulSoup
+            page = bs(req.get(link).text, features="html.parser")
+            print("Úspěch")
+            return page
+        except req.exceptions.ConnectionError:
+            print("Spojení odmítnuto, čekání", 10 * pokus, "sekund")
+            sleep(10 * pokus)
+    print("CHYBA - get_page neúspěšná")
+    return
 
-def count_results(results_page):  
-    print("počítání výsledků")  
-    return  ## Vrátí None
+## Funkce pro zpracování výsledků ze stránky
+def count_results(results_page: bs, link: str):
+    print("Počítání výsledků ze stránky", link)
+    row = []
+    ## Získáme kód obce z URL
+    row.append(parse_qs(urlparse(link).query)["xobec"][0])
+    ## Název obce
+    for h3 in results_page.find_all("h3"):
+        if "Obec:" in h3.text:
+            row.append(h3.text.strip()[6:])
+            break
+    ## Okres z URL (pokud existuje)
+    try:
+        row.append(parse_qs(urlparse(link).query)["xokrsek"][0])
+    except KeyError:
+        row.append("N/A")
+    ## Voliči v seznamu
+    row.append(results_page.find("td", {"headers": "sa2"}).text)
+    ## Vydané obálky
+    row.append(results_page.find("td", {"headers": "sa3"}).text)
+    ## Platné hlasy
+    row.append(results_page.find("td", {"headers": "sa6"}).text)
+    ## Výsledky stran
+    for result in results_page.find_all("td", {"headers": "t1sa2 t1sb3"}) + results_page.find_all("td", {"headers": "t2sa2 t2sb3"}):
+        row.append(result.text)
+    return row
 
-if len(sys.argv) < 3:  
-    print("Je zapotřebí zadat odkaz na územní celek a název výstupního souboru")  ## Vypíše zprávu o nutnosti zadat správné argumenty
-    sys.exit(1)  ## Ukončí program s chybovým kódem 1
+## Hlavní část programu
+if len(sys.argv) < 3:
+    print("Je zapotřebí zadat odkaz na územní celek a název výstupního souboru")
+    sys.exit(1)
 
-main_link = sys.argv[1]  ## První argument se použije jako hlavní odkaz
-main_page = get_page(sys.argv[1])  ## Zavolá funkci get_page s hlavním odkazem a uloží vrácenou stránku do main_page
+## Získání hlavního odkazu a hlavní stránky
+main_link = sys.argv[1]
+main_page = get_page(main_link)
 
-print(main_page.find("h1").text)  ## Vypíše text obsažený v prvním nadpisu h1 na hlavní stránce
-if "Praha" in main_page.find_all("h3")[0].text:  ## Pokud je na hlavní stránce nadpis h3 obsahující "Praha"
-    print(main_page.find_all("h3")[0].text)  ## Vypíše tento nadpis
-else:  ## Jinak
-    print(main_page.find_all("h3")[0].text, main_page.find_all("h3")[1].text)  
+## Výpis důležitých informací z hlavní stránky
+print(main_page.find("h1").text)
+if "Praha" in main_page.find_all("h3")[0].text:
+    print(main_page.find_all("h3")[0].text)
+else:
+    print(main_page.find_all("h3")[0].text, main_page.find_all("h3")[1].text)
 
-links = []  ## Inicializuje prázdný seznam odkazů
-for tag in main_page.find_all('td', {'class' : 'center'}):  
-    children = tag.findChildren()  
-    links.append(children[0]['href'])  
+## Seznam pro uložení odkazů
+links = []
+## Najdeme všechny odkazy na výsledky
+for tag in main_page.find_all("td", {"class": "center"}):
+    children = tag.findChildren()
+    links.append(children[0]["href"])
 
-rows = []  ## Inicializuje prázdný seznam řádků
-headers = ["kód obce", "název obce", "okrsek", "voliči v seznamu", "vydané obálky", "platné hlasy"]  ## Vytvoří seznam hlaviček
-page = get_page(urljoin(main_link, choice(links)))  ## Zavolá funkci get_page s náhodně vybraným odkazem a uloží vrácenou stránku do page
+## První řádek budou hlavičky, pak data
+rows = []
+## Hlavičky tabulky
+headers = ["kód obce", "název obce", "okrsek", "voliči v seznamu", "vydané obálky", "platné hlasy"]
+## Vybereme náhodnou stránku pro získání názvů stran
+page = get_page(urljoin(main_link, choice(links)))
+if page.find("h2").text.strip() == "Výsledky hlasování za územní celky – výběr okrsku":
+    page = get_page(urljoin(main_link, choice(page.find_all("td", {"class": "cislo"})).findChildren()[0]["href"]))
+elif page.find("h2").text.strip() == "Výsledky hlasování za územní celky":
+    pass
+else:
+    print("CHYBA - stránka nerozpoznána")
 
-if page.find("h2").text.strip() == "Výsledky hlasování za územní celky – výběr okrsku":  ## Pokud je na stránce nadpis h2 obsahující "Výsledky hlasování za územní celky – výběr okrsku"
-    page = get_page(urljoin(main_link, choice(page.find_all('td', {'class' : 'cislo'})).findChildren()[0]["href"]))  ## Zavolá funkci get_page s náhodně vybraným odkazem a uloží vrácenou stránku do page
-elif page.find("h2").text.strip() == "Výsledky hlasování za územní celky":  ## Pokud je na stránce nadpis h2 obsahující "Výsledky hlasování za územní celky"
-    pass  ## Nic se neděje
-else:  
-    print("CHYBA - stránka není rozpoznána")  
+## Přidáme názvy stran do hlaviček
+for party_name in page.find_all("td", {"class": "overflow_name"}):
+    headers.append(party_name.text)
+rows.append(headers)
 
-for party_name in page.find_all("td", {"class" : "overflow_name"}):  ## Prochází všechny tagy td s třídou overflow_name na stránce
-    headers.append(party_name.text)  
+## Procházíme všechny odkazy a zpracováváme výsledky
+for link in links:
+    page = get_page(urljoin(main_link, link))
+    if page.find("h2").text.strip() == "Výsledky hlasování za územní celky – výběr okrsku":
+        for tag in page.find_all("td", {"class": "cislo"}):
+            rows.append(count_results(get_page(urljoin(main_link, tag.findChildren()[0]["href"])), urljoin(main_link, tag.findChildren()[0]["href"])))
+    elif page.find("h2").text.strip() == "Výsledky hlasování za územní celky":
+        rows.append(count_results(page, urljoin(main_link, link)))
+    else:
+        print("CHYBA - stránka nerozpoznána")
+        continue
 
-rows.append(headers)  
-print(headers)  
-print(rows[0])  
-
-for link in links:  
-    page = get_page(urljoin(main_link,
+## Uložíme data do CSV souboru
+with open(sys.argv[2], 'w', newline="") as csvfile:
+    csvwriter = csv.writer(csvfile)
+    csvwriter.writerows(rows)
