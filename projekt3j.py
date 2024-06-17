@@ -14,7 +14,7 @@ import csv  ## Knihovna csv pro práci s CSV soubory
 ## Funkce pro získání stránky
 def get_page(link: str):
     ## Několik pokusů získat stránku, pokud se nepodaří, čekáme mezi pokusy
-    for pokus v rozmezí 1 až 7:
+    for pokus in range 1 až 7:
         try:
             print("Získávání stránky", link)
             ## Získáme stránku a parsujeme ji pomocí BeautifulSoup
